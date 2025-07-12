@@ -5,8 +5,15 @@ header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
 require_once '../config/database.php';
+require_once '../repositories/RepositoryFactory.php';
 $config = require '../config.php';
 $database = new Database($config);
+$repositoryFactory = RepositoryFactory::getInstance($database);
+$postRepository = $repositoryFactory->getPostRepository();
+$userRepository = $repositoryFactory->getUserRepository();
+
+// Global repository instances
+global $postRepository, $userRepository;
 
 // Handle preflight OPTIONS request
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -37,12 +44,12 @@ try {
 }
 
 function handleGetRequest() {
-    global $database;
+    global $postRepository;
     
     if (isset($_GET['id'])) {
         // Get single post
         $postId = intval($_GET['id']);
-        $post = $database->getPostById($postId);
+        $post = $postRepository->findByIdWithUser($postId);
         
         if ($post) {
             echo json_encode(['success' => true, 'post' => $post]);
@@ -51,14 +58,13 @@ function handleGetRequest() {
             echo json_encode(['success' => false, 'message' => 'Post not found']);
         }
     } else {
-        // Get all posts
-        $posts = $database->getAllPosts();
+        $posts = $postRepository->findAll();
         echo json_encode(['success' => true, 'posts' => $posts]);
     }
 }
 
 function handlePostRequest() {
-    global $database;
+    global $postRepository, $userRepository;
     
     // Validate input
     $title = isset($_POST['title']) ? trim($_POST['title']) : '';
@@ -97,7 +103,7 @@ function handlePostRequest() {
     }
     
     // Check if user exists
-    $user = $database->getUserById($userId);
+    $user = $userRepository->findById($userId);
     if (!$user) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Selected user does not exist']);
@@ -109,7 +115,7 @@ function handlePostRequest() {
     
     // If updating, get current image URL
     if ($id) {
-        $existingPost = $database->getPostById($id);
+        $existingPost = $postRepository->findById($id);
         if (!$existingPost) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Post not found']);
@@ -141,7 +147,12 @@ function handlePostRequest() {
     try {
         if ($id) {
             // Update existing post
-            $result = $database->updatePost($id, $title, $content, $imgUrl, $userId);
+            $result = $postRepository->updatePost($id, [
+                'Title' => $title,
+                'content' => $content,
+                'ImgUrl' => $imgUrl,
+                'User_id' => $userId
+            ]);
             if ($result) {
                 echo json_encode(['success' => true, 'message' => 'Post updated successfully']);
             } else {
@@ -149,7 +160,12 @@ function handlePostRequest() {
             }
         } else {
             // Create new post
-            $postId = $database->addPost($title, $content, $imgUrl, $userId);
+            $postId = $postRepository->createPost([
+                'Title' => $title,
+                'content' => $content,
+                'ImgUrl' => $imgUrl,
+                'User_id' => $userId
+            ]);
             if ($postId) {
                 echo json_encode(['success' => true, 'message' => 'Post created successfully', 'post_id' => $postId]);
             } else {
@@ -166,7 +182,7 @@ function handlePostRequest() {
 }
 
 function handleDeleteRequest() {
-    global $database;
+    global $postRepository;
     
     if (!isset($_GET['id'])) {
         http_response_code(400);
@@ -176,24 +192,13 @@ function handleDeleteRequest() {
     
     $postId = intval($_GET['id']);
     
-    // Check if post exists and get image URL
-    $post = $database->getPostById($postId);
-    if (!$post) {
-        http_response_code(404);
-        echo json_encode(['success' => false, 'message' => 'Post not found']);
-        return;
-    }
-    
-    $result = $database->deletePost($postId);
+    // Use repository method that handles both post deletion and image cleanup
+    $result = $postRepository->deletePostWithImage($postId);
     if ($result) {
-        // Delete associated image file if exists
-        if ($post['ImgUrl'] && file_exists('../' . $post['ImgUrl'])) {
-            unlink('../' . $post['ImgUrl']);
-        }
-        
         echo json_encode(['success' => true, 'message' => 'Post deleted successfully']);
     } else {
-        throw new Exception('Failed to delete post');
+        http_response_code(404);
+        echo json_encode(['success' => false, 'message' => 'Post not found']);
     }
 }
 

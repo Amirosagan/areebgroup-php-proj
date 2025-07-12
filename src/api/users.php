@@ -5,8 +5,14 @@ header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
 require '../config/database.php';
+require '../repositories/RepositoryFactory.php';
 $config = require '../config.php';
 $database = new Database($config);
+$repositoryFactory = RepositoryFactory::getInstance($database);
+$userRepository = $repositoryFactory->getUserRepository();
+
+// Global repository instance
+global $userRepository;
 
 // Handle preflight OPTIONS request
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -37,12 +43,12 @@ try {
 }
 
 function handleGetRequest() {
-    global $database;
+    global $userRepository;
     
     if (isset($_GET['id'])) {
         // Get single user
         $userId = intval($_GET['id']);
-        $user = $database->getUserById($userId);
+        $user = $userRepository->findById($userId);
         
         if ($user) {
             echo json_encode(['success' => true, 'user' => $user]);
@@ -51,14 +57,14 @@ function handleGetRequest() {
             echo json_encode(['success' => false, 'message' => 'User not found']);
         }
     } else {
-        // Get all users
-        $users = $database->getAllUsers();
+        // Get all users with post counts
+        $users = $userRepository->getUsersWithPostCounts();
         echo json_encode(['success' => true, 'users' => $users]);
     }
 }
 
 function handlePostRequest() {
-    global $database;
+    global $userRepository;
     
     // Validate input
     $name = isset($_POST['name']) ? trim($_POST['name']) : '';
@@ -78,25 +84,27 @@ function handlePostRequest() {
     
     try {
         if ($id) {
-            $existingUser = $database->getUserById($id);
+            $existingUser = $userRepository->findById($id);
             if (!$existingUser) {
                 http_response_code(404);
                 echo json_encode(['success' => false, 'message' => 'User not found']);
                 return;
             }
             
-            $result = $database->updateUser($id, $name);
+            $result = $userRepository->updateUserName($id, $name);
             if ($result) {
                 echo json_encode(['success' => true, 'message' => 'User updated successfully']);
             } else {
-                throw new Exception('Failed to update user');
+                http_response_code(409);
+                echo json_encode(['success' => false, 'message' => 'User name already exists']);
             }
         } else {
-            $userId = $database->addUser($name);
+            $userId = $userRepository->createUser($name);
             if ($userId) {
                 echo json_encode(['success' => true, 'message' => 'User created successfully', 'user_id' => $userId]);
             } else {
-                throw new Exception('Failed to create user');
+                http_response_code(409);
+                echo json_encode(['success' => false, 'message' => 'User name already exists']);
             }
         }
     } catch (Exception $e) {
@@ -110,7 +118,7 @@ function handlePostRequest() {
 }
 
 function handleDeleteRequest() {
-    global $database;
+    global $userRepository, $repositoryFactory;
     
     if (!isset($_GET['id'])) {
         http_response_code(400);
@@ -121,7 +129,7 @@ function handleDeleteRequest() {
     $userId = intval($_GET['id']);
     
     // Check if user exists
-    $user = $database->getUserById($userId);
+    $user = $userRepository->findById($userId);
     if (!$user) {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'User not found']);
@@ -129,9 +137,8 @@ function handleDeleteRequest() {
     }
     
     // Check if user has posts
-    $posts = $database->getConnection()->prepare("SELECT COUNT(*) as count FROM Posts WHERE User_id = ?");
-    $posts->execute([$userId]);
-    $postCount = $posts->fetch()['count'];
+    $postRepository = $repositoryFactory->getPostRepository();
+    $postCount = $postRepository->countByUserId($userId);
     
     if ($postCount > 0) {
         http_response_code(409);
@@ -139,7 +146,7 @@ function handleDeleteRequest() {
         return;
     }
     
-    $result = $database->deleteUser($userId);
+    $result = $userRepository->delete($userId);
     if ($result) {
         echo json_encode(['success' => true, 'message' => 'User deleted successfully']);
     } else {

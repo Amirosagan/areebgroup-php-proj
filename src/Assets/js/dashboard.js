@@ -313,7 +313,6 @@ async function deletePost(postId) {
     }
 }
 
-// Reload functions
 async function reloadUsers() {
     try {
         const response = await fetch('../api/users.php');
@@ -331,7 +330,7 @@ async function reloadUsers() {
 
 async function reloadPosts() {
     try {
-        const response = await fetch('../api/posts.php');
+        const response = await fetch('../../api/posts.php');
         const result = await response.json();
 
         if (result.success) {
@@ -343,7 +342,6 @@ async function reloadPosts() {
     }
 }
 
-// Update UI functions
 function updateUsersTable(users) {
     const tbody = document.getElementById('users-table-body');
     
@@ -430,12 +428,10 @@ async function updateStats() {
     }
 }
 
-// Utility functions
 function closeModal(modalId) {
     const modal = document.getElementById(modalId);
     modal.style.display = 'none';
     
-    // Clear form data
     const form = modal.querySelector('form');
     if (form) {
         form.reset();
@@ -445,7 +441,6 @@ function closeModal(modalId) {
         }
     }
     
-    // Clear image preview
     const preview = modal.querySelector('.image-preview');
     if (preview) {
         preview.innerHTML = '';
